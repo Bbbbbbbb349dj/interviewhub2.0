@@ -16,10 +16,20 @@ export const envApiUrl = () => ENV_URL;
 
 export function getApiUrl() {
   if (ENV_URL) return clean(ENV_URL);
-  return clean(storage.get(SYNC_CONFIG_KEY, {})?.apiUrl);
+
+  const savedUrl = clean(storage.get(SYNC_CONFIG_KEY, {})?.apiUrl);
+  if (savedUrl) return savedUrl;
+
+  // Vercel routes same-origin /api/* requests to the server service.
+  return '';
 }
 
-export const apiConfigured = () => Boolean(getApiUrl());
+export const apiConfigured = () =>
+  Boolean(
+    ENV_URL ||
+    clean(storage.get(SYNC_CONFIG_KEY, {})?.apiUrl) ||
+    import.meta.env.PROD
+  );
 
 let probeCache = { url: null, ok: false, at: 0 };
 
@@ -51,7 +61,9 @@ export class ApiError extends Error {
 
 async function req(path, { method = 'GET', body, auth = true, timeout = 10000, keepalive = false } = {}) {
   const base = getApiUrl();
-  if (!base) throw new ApiError('No server API URL configured.', 0);
+  if (!base && !import.meta.env.PROD) {
+  throw new ApiError('No server API URL configured.', 0);
+}
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -82,7 +94,7 @@ async function req(path, { method = 'GET', body, auth = true, timeout = 10000, k
 /** True when the API answers health and reports its PostgreSQL link up. */
 export async function probeServer(force = false) {
   const url = getApiUrl();
-  if (!url) return false;
+  if (!url && !import.meta.env.PROD) return false;
   if (!force && probeCache.url === url && Date.now() - probeCache.at < 20000) return probeCache.ok;
   let ok = false;
   try {

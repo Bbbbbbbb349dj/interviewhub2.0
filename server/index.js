@@ -294,24 +294,87 @@ export function createApp(pool) {
 }
 
 /* ------------------------------ main boot ----------------------------- */
+/* -------------------------- server startup -------------------------- */
+
 import { fileURLToPath } from 'node:url';
-const isMain = Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain) {
-  const port = Number(process.env.PORT || 4000);
-  const connectionString = process.env.DATABASE_URL || 'postgres://interviewhub:interviewhub@localhost:5432/interviewhub';
-  if (!process.env.JWT_SECRET) {
-    console.warn('[interviewhub-api] JWT_SECRET not set — using the dev default. Set a strong secret in production.');
+
+const isMain =
+  Boolean(process.argv[1]) &&
+  fileURLToPath(import.meta.url) === process.argv[1];
+
+let pool;
+let appPromise;
+
+async function getApp() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL environment variable is missing.');
   }
-  const pool = createPool(connectionString);
-  waitForDatabase(pool)
-    .then(() => migrate(pool))
-    .then(() => {
-      createApp(pool).listen(port, () => {
-        console.log(`[interviewhub-api] listening on :${port} — PostgreSQL connected & schema migrated`);
+
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is missing.');
+  }
+
+  if (!appPromise) {
+    appPromise = (async () => {
+      pool = createPool(process.env.DATABASE_URL);
+
+      await waitForDatabase(pool);
+      await migrate(pool);
+
+      console.log(
+        '[interviewhub-api] PostgreSQL connected and schema migrated'
+      );
+
+      return createApp(pool);
+    })().catch((error) => {
+      appPromise = null;
+
+      if (pool) {
+        pool.end().catch(() => {});
+        pool = null;
+      }
+
+      throw error;
+    });
+  }
+
+  return appPromise;
+}
+
+/* Vercel serverless function handler */
+export default async function handler(req, res) {
+  try {
+    const app = await getApp();
+    return app(req, res);
+  } catch (error) {
+    console.error('[interviewhub-api] initialization failed:', error);
+
+    if (!res.headersSent) {
+      return res.status(503).json({
+        ok: false,
+        error: 'API initialization failed. Check server logs.',
+      });
+    }
+  }
+}
+
+/* Local development: npm start */
+if (isMain && process.env.VERCEL !== '1') {
+  const port = Number(process.env.PORT || 4000);
+
+  getApp()
+    .then((app) => {
+      app.listen(port, () => {
+        console.log(
+          `[interviewhub-api] listening on :${port}`
+        );
       });
     })
-    .catch((e) => {
-      console.error('[interviewhub-api] failed to start:', e);
-      process.exit(1);
+    .catch((error) => {
+      console.error(
+        '[interviewhub-api] failed to start:',
+        error
+      );
+      process.exitCode = 1;
     });
 }

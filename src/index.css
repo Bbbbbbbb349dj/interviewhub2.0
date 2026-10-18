@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #0f172a;
+  --color-night: #05070e;
+  --color-night-2: #0c1220;
+  --color-mist: #f4f6fb;
+}
+
+/* =============================================================================
+ * Design tokens — single source of truth for EVERY surface in the app.
+ * Light and dark only flip these variables; components never hard-code colors,
+ * which keeps the theme perfectly consistent across all 13 pages.
+ * ========================================================================== */
+:root {
+  --ihub-base: #f4f6fb;            /* page background            */
+  --ihub-raise: #ffffff;           /* cards, nav, raised panels  */
+  --ihub-sunken: #edf1f8;          /* wells, inputs, toolbars    */
+  --ihub-line: rgba(15, 23, 42, 0.1);
+  --ihub-grid: rgba(15, 23, 42, 0.05);
+  --ihub-glow-a: rgba(37, 99, 235, 0.15);
+  --ihub-glow-b: rgba(6, 182, 212, 0.11);
+  color-scheme: light;
+}
+
+.dark {
+  --ihub-base: #05070e;
+  --ihub-raise: #0c1220;
+  --ihub-sunken: #080d17;
+  --ihub-line: rgba(148, 163, 184, 0.17);
+  --ihub-grid: rgba(148, 163, 184, 0.075);
+  --ihub-glow-a: rgba(37, 99, 235, 0.22);
+  --ihub-glow-b: rgba(6, 182, 212, 0.13);
+  color-scheme: dark;
+}
+
+/* Token-driven utilities: bg-base / bg-raise / bg-sunken / border-line, etc.
+ * `inline` keeps the var reference so they hot-swap with the .dark class. */
+@theme inline {
+  --color-base: var(--ihub-base);
+  --color-raise: var(--ihub-raise);
+  --color-sunken: var(--ihub-sunken);
+  --color-line: var(--ihub-line);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-color: var(--ihub-base);
+}
+
+/* =============================================================================
+ * Application background — modern SaaS style (NO mesh gradients):
+ * one deep base, a fine architectural grid that dissolves into the page,
+ * and a single soft spotlight at the top. Rendered once, fixed behind app.
+ * ========================================================================== */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--ihub-base);
+}
+.app-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(54rem 30rem at 50% -14%, var(--ihub-glow-a), transparent 66%),
+    radial-gradient(38rem 26rem at 88% -6%, var(--ihub-glow-b), transparent 70%);
+}
+.app-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--ihub-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ihub-grid) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: radial-gradient(ellipse 85% 58% at 50% 0%, black 10%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 58% at 50% 0%, black 10%, transparent 76%);
+}
+
+/* Fine grid overlay for branded panels (token-driven, theme-aware). */
+.grid-lines {
+  background-image:
+    linear-gradient(to right, var(--ihub-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ihub-grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 30%, transparent 75%);
+}
+
+/* Soft token-driven spotlight wash for hero/brand panels. */
+.spotlight {
+  background:
+    radial-gradient(46rem 26rem at 28% 0%, var(--ihub-glow-a), transparent 68%),
+    radial-gradient(34rem 22rem at 92% 6%, var(--ihub-glow-b), transparent 70%);
+}
+
+::selection {
+  background: rgba(6, 182, 212, 0.28);
+  color: inherit;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* Product screenshot panels (landing mockups) — deliberately the SAME deep
+ * finish in both themes, like Linear/Stripe product shots on marketing pages. */
+.product-shot {
+  background-color: rgba(9, 13, 23, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 24px 64px -24px rgba(2, 6, 23, 0.45);
+}
+
+.noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+@keyframes floaty {
+  0%, 100% { transform: translateY(0px) rotate(var(--tw-rotate, 0deg)); }
+  50% { transform: translateY(-12px) rotate(var(--tw-rotate, 0deg)); }
+}
+.animate-floaty {
+  animation: floaty 6s ease-in-out infinite;
+}
+
+@keyframes pulsering {
+  0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.45); }
+  70% { box-shadow: 0 0 0 18px rgba(6, 182, 212, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+}
+.animate-pulsering {
+  animation: pulsering 1.8s ease-out infinite;
+}
+
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq 0.9s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(148,163,184,0.14) 25%, rgba(148,163,184,0.28) 50%, rgba(148,163,184,0.14) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+input[type="range"] {
+  accent-color: #06b6d4;
+}
+
+:focus-visible {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
+  border-radius: 6px;
+}

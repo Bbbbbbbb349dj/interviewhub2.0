@@ -1,0 +1,37 @@
+# InterviewHub full stack — PostgreSQL database + API server.
+# Usage:  docker compose up --build
+# Then open the InterviewHub web app and set the API URL (Settings → Your data)
+# to http://localhost:4000 — or build the app with VITE_API_URL set.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: interviewhub-db
+    environment:
+      POSTGRES_USER: interviewhub
+      POSTGRES_PASSWORD: interviewhub
+      POSTGRES_DB: interviewhub
+    ports:
+      - "5432:5432"
+    volumes:
+      - interviewhub-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interviewhub -d interviewhub"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: ./server
+    container_name: interviewhub-api
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://interviewhub:interviewhub@db:5432/interviewhub
+      JWT_SECRET: change-me-to-a-long-random-secret
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  interviewhub-pgdata:

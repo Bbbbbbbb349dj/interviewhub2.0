@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="InterviewHub — AI voice interviews, resume analysis, coding arena, aptitude tests and communication coaching in one platform. Prepare Smarter. Perform Better. Get Hired." />
+    <meta name="theme-color" content="#05070e" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='0.5' stop-color='%2306b6d4'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M16 28a16 16 0 0 1 32 0' stroke='white' stroke-width='5.5' stroke-linecap='round' fill='none'/%3E%3Crect x='28' y='28' width='8' height='20' rx='4' fill='white'/%3E%3Ccircle cx='32' cy='28' r='5' fill='white'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <title>InterviewHub — Prepare Smarter. Perform Better. Get Hired.</title>
+    <style>
+      /* Static boot splash — visible while the database hydrates and the bundle loads. */
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background-color: #05070e;
+        background-image:
+          radial-gradient(54rem 30rem at 50% -14%, rgba(37,99,235,.22), transparent 66%),
+          radial-gradient(38rem 26rem at 88% -6%, rgba(6,182,212,.13), transparent 70%);
+        color: #f1f5f9; font-family: "Inter", system-ui, sans-serif;
+      }
+      #boot-splash .mark {
+        width: 58px; height: 58px; border-radius: 17px;
+        background: linear-gradient(135deg, #2563eb 0%, #06b6d4 45%, #ec4899 100%);
+        display: grid; place-items: center;
+        box-shadow: 0 14px 44px rgba(37, 99, 235, .38);
+        animation: boot-pulse 1.7s ease-in-out infinite;
+      }
+      #boot-splash .bar { width: 128px; height: 3px; border-radius: 99px; background: rgba(148,163,184,.18); overflow: hidden; }
+      #boot-splash .bar::after {
+        content: ""; display: block; width: 42%; height: 100%; border-radius: 99px;
+        background: linear-gradient(90deg, #2563eb, #06b6d4);
+        animation: boot-slide 1.05s ease-in-out infinite;
+      }
+      #boot-splash p { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: #64748b; }
+      @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(330%); } }
+      @keyframes boot-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+      body { margin: 0; background: #05070e; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div id="boot-splash">
+        <div class="mark">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 10a8 8 0 0 1 16 0" stroke="white" stroke-width="2.4" stroke-linecap="round" />
+            <rect x="10.6" y="10" width="2.8" height="10" rx="1.4" fill="white" />
+            <circle cx="12" cy="10" r="2" fill="white" />
+          </svg>
+        </div>
+        <div class="bar"></div>
+        <p>InterviewHub</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

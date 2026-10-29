@@ -96,7 +96,7 @@ function Hero({ startTo }) {
             </a>
           </motion.div>
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 }} className="mt-5 text-xs text-slate-500">
-            Free MVP · runs on your own AI key · offline-first, syncs to your own PostgreSQL database
+            Free · AI-powered practice · your progress syncs across devices
           </motion.p>
         </motion.div>
 

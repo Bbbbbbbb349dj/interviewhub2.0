@@ -8,8 +8,10 @@
  *
  * Endpoints
  *   GET    /api/health            liveness + database connectivity
- *   POST   /api/auth/register     { name, email, password } → { token, user }
- *   POST   /api/auth/login        { email, password }       → { token, user }
+ *   POST   /api/auth/register     { name, email, password } → { user } + session cookie
+ *   POST   /api/auth/login        { email, password }       → { user } + session cookie
+ *   POST   /api/auth/logout       revoke session
+ *   POST   /api/auth/forgot|reset, GET /api/auth/google/*, /api/admin/ai*, /api/ai/*  (extras.js)
  *   GET    /api/auth/me           current account                  (auth)
  *   PATCH  /api/auth/profile      { name?, profile? }              (auth)
  *   DELETE /api/auth/me           delete account + all user data   (auth)
@@ -22,12 +24,11 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { createPool, migrate, waitForDatabase } from './db.js';
+import { makeAuth, startSession, endSession, limit } from './session.js';
+import { mountExtraRoutes } from './extras.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'interviewhub-dev-secret-change-me';
-const JWT_TTL = '30d';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const toDate = (ms) => (typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? new Date(ms) : null);
@@ -88,7 +89,7 @@ const DOC_KEYS = new Set(['settings', 'theme', 'achievements', 'activityLog']);
 
 function publicUser(row) {
   return {
-    id: row.id, name: row.name, email: row.email,
+    id: row.id, name: row.name, email: row.email, role: row.role || 'user',
     profile: asObject(row.profile) || { targetRole: '', skills: [], education: '', bio: '' },
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
@@ -109,29 +110,16 @@ async function upsertItem(pool, cfg, accountId, item) {
 
 export function createApp(pool) {
   const app = express();
-  app.use(cors({ origin: process.env.CORS_ORIGIN || true }));
+  app.set('trust proxy', 1);
+  // Cookies need an explicit origin. Same-origin deployments (Vercel) need no CORS at all.
+  app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN, credentials: true } : { origin: false }));
   app.use(express.json({ limit: '8mb' }));
-
-  const auth = (req, res, next) => {
-    const header = req.headers.authorization || '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (!token) return res.status(401).json({ error: 'Missing auth token.' });
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      req.accountId = decoded.sub;
-      req.email = decoded.email;
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'Session expired. Please log in again.' });
-    }
-  };
-
-  const sign = (user) => jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: JWT_TTL });
+  const auth = makeAuth(pool);
 
   /* ----------------------- code execution proxy ----------------------- */
   // Keeps the OnlineCompiler.io API key on the server. Only allow the Judge0
   // submission endpoints needed by the Coding module; this is not an open proxy.
-  app.use('/api/code', async (req, res) => {
+  app.use('/api/code', auth, async (req, res) => {
     const key = process.env.ONLINECOMPILER_API_KEY;
     if (!key) {
       return res.status(503).json({ error: 'Code execution is not configured. Set ONLINECOMPILER_API_KEY in the server environment.' });
@@ -176,14 +164,14 @@ export function createApp(pool) {
   });
 
   /* ------------------------------- auth -------------------------------- */
-  app.post('/api/auth/register', async (req, res) => {
+  app.post('/api/auth/register', limit(10), async (req, res) => {
     try {
       const name = String(req.body?.name || '').trim();
       const email = String(req.body?.email || '').trim().toLowerCase();
       const password = String(req.body?.password || '');
       if (name.length < 2) return res.status(400).json({ error: 'Name must be at least 2 characters.' });
       if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
-      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+      if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
       const existing = await pool.query('SELECT id FROM accounts WHERE email = $1', [email]);
       if (existing.rows.length) return res.status(409).json({ error: 'An account with this email already exists.' });
@@ -195,28 +183,35 @@ export function createApp(pool) {
         'INSERT INTO accounts (id, name, email, password_hash, profile) VALUES ($1, $2, $3, $4, $5) RETURNING *',
         [id, name, email, passwordHash, JSON.stringify(profile)],
       );
-      const user = publicUser(rows[0]);
-      return res.status(201).json({ token: sign(user), user });
+      await startSession(pool, res, rows[0].id);
+      return res.status(201).json({ user: publicUser(rows[0]) });
     } catch (e) {
       console.error('[auth/register]', e);
       return res.status(500).json({ error: 'Registration failed. Please try again.' });
     }
   });
 
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', limit(10), async (req, res) => {
     try {
       const email = String(req.body?.email || '').trim().toLowerCase();
       const password = String(req.body?.password || '');
       const { rows } = await pool.query('SELECT * FROM accounts WHERE email = $1', [email]);
-      if (!rows.length) return res.status(404).json({ error: 'No account found with this email.' });
-      const ok = await bcrypt.compare(password, rows[0].password_hash);
-      if (!ok) return res.status(401).json({ error: 'Incorrect password.' });
-      const user = publicUser(rows[0]);
-      return res.json({ token: sign(user), user });
+      const hash = rows[0]?.password_hash || '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv';
+      const ok = await bcrypt.compare(password, hash);
+      if (!rows.length || !rows[0].password_hash || !ok) {
+        return res.status(401).json({ error: 'Incorrect email or password. If you signed up with Google, use "Continue with Google".' });
+      }
+      await startSession(pool, res, rows[0].id);
+      return res.json({ user: publicUser(rows[0]) });
     } catch (e) {
       console.error('[auth/login]', e);
       return res.status(500).json({ error: 'Login failed. Please try again.' });
     }
+  });
+
+  app.post('/api/auth/logout', async (req, res) => {
+    try { await endSession(pool, req, res); } catch (e) { console.error('[auth/logout]', e); }
+    return res.json({ ok: true });
   });
 
   app.get('/api/auth/me', auth, async (req, res) => {
@@ -247,6 +242,8 @@ export function createApp(pool) {
     await pool.query('DELETE FROM accounts WHERE id = $1', [req.accountId]); // cascades to all user data
     return res.json({ ok: true });
   });
+
+  mountExtraRoutes(app, pool, auth);
 
   /* ------------------------------- sync -------------------------------- */
   app.get('/api/sync/pull', auth, async (req, res) => {
@@ -345,10 +342,6 @@ let appPromise;
 async function getApp() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL environment variable is missing.');
-  }
-
-  if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET environment variable is missing.');
   }
 
   if (!appPromise) {

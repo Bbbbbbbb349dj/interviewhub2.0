@@ -15,6 +15,7 @@ import History from './pages/History';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Practice from './pages/Practice';
+import Admin from './pages/Admin';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -25,13 +26,23 @@ function ScrollToTop() {
 }
 
 function Private({ children }: { children: React.ReactNode }) {
-  const { user } = (useApp() as any) || {};
+  const { user, authReady } = (useApp() as any) || {};
+  if (!authReady) return null;
   if (!user) return <Navigate to="/auth" replace />;
   return <>{children}</>;
 }
 
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  const { user, authReady } = (useApp() as any) || {};
+  if (!authReady) return null;
+  if (!user) return <Navigate to="/auth" replace />;
+  if (user.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 function GuestOnly({ children }: { children: React.ReactNode }) {
-  const { user } = (useApp() as any) || {};
+  const { user, authReady } = (useApp() as any) || {};
+  if (!authReady) return null;
   if (user) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
@@ -91,6 +102,7 @@ function Shell() {
         <Route path="/analytics" element={<Private><Analytics /></Private>} />
         <Route path="/history" element={<Private><History /></Private>} />
         <Route path="/profile" element={<Private><Profile /></Private>} />
+        <Route path="/admin" element={<AdminOnly><Admin /></AdminOnly>} />
         <Route path="/settings" element={<Private><Settings /></Private>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

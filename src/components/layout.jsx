@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Mic, FileText, Code2, Calculator, BarChart3, Sun, Moon, LogOut,
-  Settings as SettingsIcon, User as UserIcon, Menu, X, History,
+  Settings as SettingsIcon, User as UserIcon, Menu, X, History, ShieldCheck,
 } from 'lucide-react';
 import { Logo, btnClasses } from './ui';
 import { FEATURES } from '../constants';
@@ -197,6 +197,7 @@ function UserMenu() {
                 { to: '/profile', label: 'Profile', icon: UserIcon },
                 { to: '/history', label: 'Interview History', icon: History },
                 { to: '/settings', label: 'Settings', icon: SettingsIcon },
+                ...(user?.role === 'admin' ? [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] : []),
               ].map((i) => (
                 <Link key={i.to} to={i.to} onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
                   <i.icon size={15} /> {i.label}

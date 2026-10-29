@@ -16,8 +16,9 @@ export default function Profile() {
     bio: user?.profile?.bio || '',
   });
 
-  const save = () => {
-    updateProfile({
+  const save = async () => {
+    try {
+      await updateProfile({
       name: form.name.trim() || user.name,
       profile: {
         targetRole: form.targetRole,
@@ -25,8 +26,11 @@ export default function Profile() {
         education: form.education.trim(),
         bio: form.bio.trim(),
       },
-    });
-    toast('success', 'Profile saved');
+      });
+      toast('success', 'Profile saved');
+    } catch (e) {
+      toast('error', 'Could not save profile', e.message);
+    }
   };
 
   const initials = (user?.name || 'U').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();

@@ -3,7 +3,7 @@ import { SCHEMA_SQL } from './schema.js';
 
 /** Create a PostgreSQL connection pool from a DATABASE_URL. */
 export function createPool(connectionString) {
-  return new pg.Pool({ connectionString, max: 10, idleTimeoutMillis: 30000 });
+  return new pg.Pool({ connectionString, max: process.env.VERCEL ? 3 : 10, idleTimeoutMillis: 30000 });
 }
 
 /** Apply the schema (idempotent — safe on every boot). */

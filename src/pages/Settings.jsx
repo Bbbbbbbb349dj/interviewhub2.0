@@ -1,26 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sun, Moon, KeyRound, ShieldCheck, Volume2, Bell, Database, Download, Upload,
-  Trash2, CheckCircle2, AlertTriangle, Eye, EyeOff, PlugZap,
+  Trash2, CheckCircle2, AlertTriangle, PlugZap,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Page, Container, FeatureHeader } from '../components/layout';
 import { Card, Btn, Badge, Field, Select, Toggle, Modal, inputCls } from '../components/ui';
 import { FEATURES } from '../constants';
 import { useApp } from '../context/AppContext';
-import { byok, getAIConfig, aiProviderLabel, askJSON } from '../services/aiService';
+import { getAIConfig, aiProviderLabel, askJSON } from '../services/aiService';
 import { exportAllData, importAllData, storage, dbInfo, fmtDateTime } from '../services/storage';
-import { api, getApiUrl, setApiUrl, envApiUrl, probeServer, getSession } from '../services/apiClient';
+import { api, getApiUrl, setApiUrl, envApiUrl, probeServer } from '../services/apiClient';
 import { wipeRemoteData } from '../services/dbSync';
 import { ttsSupported, speak } from '../hooks/useSpeech';
 
 export default function Settings() {
-  const { theme, toggleTheme, settings, saveSettings, toast, syncState, syncNow } = useApp();
+  const { user, theme, toggleTheme, settings, saveSettings, toast, syncState, syncNow } = useApp();
   const [apiUrl, setApiUrlInput] = useState(() => getApiUrl());
   const [serverUp, setServerUp] = useState(null);
   const [probing, setProbing] = useState(false);
-  const [openai, setOpenai] = useState('');
-  const [gemini, setGemini] = useState('');
-  const [showKeys, setShowKeys] = useState(false);
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState([]);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -46,16 +44,6 @@ export default function Settings() {
     window.speechSynthesis.onvoiceschanged = load;
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, []);
-
-  const saveKeys = () => {
-    if (openai.trim() || gemini.trim()) {
-      byok.set({ openai: openai.trim() || undefined, gemini: gemini.trim() || undefined });
-      setOpenai(''); setGemini('');
-      toast('success', 'AI key saved', getAIConfig() ? `Active provider: ${aiProviderLabel()}` : 'Key stored in your local database.');
-    } else {
-      toast('info', 'Nothing to save', 'Paste a key first.');
-    }
-  };
 
   const testConnection = async () => {
     setTesting(true);
@@ -94,8 +82,7 @@ export default function Settings() {
 
   const doClear = async () => {
     /* Server mode: delete the account + all synced rows in PostgreSQL too. */
-    const session = getSession();
-    if (session?.mode === 'server') {
+    {
       try { await wipeRemoteData(); } catch { /* best effort */ }
       try { await api.deleteAccount(); } catch { /* best effort */ }
     }
@@ -158,30 +145,15 @@ export default function Settings() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <SectionTitle icon={KeyRound} title="AI provider" />
             <Badge className={cfg ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 text-rose-500'}>
-              {cfg ? <><CheckCircle2 size={12} /> Active: {aiProviderLabel()}</> : <><AlertTriangle size={12} /> No key configured</>}
+              {cfg ? <><CheckCircle2 size={12} /> Active: {aiProviderLabel()}</> : <><AlertTriangle size={12} /> Not configured</>}
             </Badge>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-            Interviews, resume deep-analysis and code review call a real LLM. Paste a key below — it is stored in <b>your browser's local IndexedDB database</b> and sent only to the provider you choose. Keys <b>never</b> leave this device.
+            Interviews, resume deep-analysis and code review use an AI provider that is configured by an administrator and called securely from the server.
           </p>
-          <div className="mt-5 grid gap-4">
-            <Field label="OpenAI API key" hint="Preferred provider when present. e.g. sk-…">
-              <div className="relative">
-                <input type={showKeys ? 'text' : 'password'} value={openai} onChange={(e) => setOpenai(e.target.value)} placeholder={byok.has() ? 'A key is saved in your local database' : 'sk-…'} className={`${inputCls} pr-12`} autoComplete="off" />
-                <button type="button" onClick={() => setShowKeys(!showKeys)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Toggle key visibility">{showKeys ? <EyeOff size={15} /> : <Eye size={15} />}</button>
-              </div>
-            </Field>
-            <Field label="Google Gemini API key" hint="Used when no OpenAI key is present.">
-              <input type={showKeys ? 'text' : 'password'} value={gemini} onChange={(e) => setGemini(e.target.value)} placeholder="AIza…" className={inputCls} autoComplete="off" />
-            </Field>
-          </div>
           <div className="mt-5 flex flex-wrap gap-3">
-            <Btn size="sm" icon={ShieldCheck} onClick={saveKeys}>Save key</Btn>
             <Btn size="sm" variant="outline" icon={PlugZap} onClick={testConnection} loading={testing} disabled={!cfg}>Test connection</Btn>
-            {byok.has() && <Btn size="sm" variant="ghost" className="text-rose-500" onClick={() => { byok.clear(); toast('info', 'Saved keys removed'); }}>Remove saved keys</Btn>}
-          </div>
-          <div className="mt-5 rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-            <b className="text-slate-700 dark:text-slate-200">Developers:</b> bake keys in at build time with <code className="rounded bg-slate-200 px-1.5 py-0.5 dark:bg-slate-700">VITE_OPENAI_API_KEY</code> / <code className="rounded bg-slate-200 px-1.5 py-0.5 dark:bg-slate-700">VITE_GEMINI_API_KEY</code> (see <code className="rounded bg-slate-200 px-1.5 py-0.5 dark:bg-slate-700">.env.example</code>). Note: keys bundled into a client build are visible to anyone with the bundle — for production, proxy through a server. Optional model overrides: <code className="rounded bg-slate-200 px-1.5 py-0.5 dark:bg-slate-700">VITE_OPENAI_MODEL</code>, <code className="rounded bg-slate-200 px-1.5 py-0.5 dark:bg-slate-700">VITE_GEMINI_MODEL</code>.
+            {user?.role === 'admin' && <Link to="/admin" className="inline-flex items-center rounded-xl border border-line px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">Manage AI keys</Link>}
           </div>
         </Card>
 
@@ -271,7 +243,7 @@ export default function Settings() {
             {syncState?.lastError && <span className="text-rose-500">{syncState.lastError}</span>}
           </div>
           <div className="mt-4 rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-            When an API URL is set, <b className="text-slate-700 dark:text-slate-200">sign-ups & logins run against PostgreSQL</b> (bcrypt + JWT) and your interviews, submissions, tests and analyses sync into their tables automatically. AI provider keys are never synced — they stay on this device.
+            When an API URL is set, <b className="text-slate-700 dark:text-slate-200">sign-ups & logins run against PostgreSQL</b> (bcrypt + server sessions) and your interviews, submissions, tests and analyses sync into their tables automatically.
           </div>
         </Card>
 

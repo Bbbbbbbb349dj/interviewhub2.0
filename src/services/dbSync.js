@@ -12,7 +12,7 @@
  * ========================================================================== */
 
 import { storage, KEYS, onStorageMutation } from './storage';
-import { api, apiConfigured, probeServer, getToken } from './apiClient';
+import { api, apiConfigured, probeServer, isSignedIn } from './apiClient';
 
 export const COLLECTION_KEYS = [KEYS.interviews, KEYS.coding, KEYS.aptitude, KEYS.comm, KEYS.resumes];
 export const DOC_KEYS = [KEYS.achievements, KEYS.settings, KEYS.theme, KEYS.activity];
@@ -167,7 +167,7 @@ async function pushDirty(keepalive = false) {
 
 /* ------------------------------ session API ------------------------------- */
 export async function syncNow({ pull = true, keepalive = false } = {}) {
-  if (!active || syncing || !getToken()) return state;
+  if (!active || syncing || !isSignedIn()) return state;
   syncing = true;
   setState({ status: 'syncing', lastError: null });
   try {
@@ -191,7 +191,7 @@ function schedulePush() {
 
 function onMutation(key) {
   if (!active || applyingRemote) return;
-  if (key === META_KEY || key === 'syncConfig' || key === KEYS.session || key === KEYS.accounts || key === 'aiKeys') return;
+  if (key === META_KEY || key === 'syncConfig') return;
   const isDoc = DOC_KEYS.includes(key);
   const isCollection = COLLECTION_KEYS.includes(key);
   if (!isDoc && !isCollection) return;
@@ -205,7 +205,7 @@ function onMutation(key) {
 
 /** Begin syncing for the signed-in server account. Safe to call repeatedly. */
 export async function startSyncSession() {
-  if (!apiConfigured() || !getToken()) {
+  if (!apiConfigured() || !isSignedIn()) {
     setState({ status: apiConfigured() ? 'offline' : 'local' });
     return state;
   }
@@ -233,7 +233,7 @@ export function stopSyncSession() {
 
 /** Wipe every synced record server-side (used by "Clear all data"). */
 export async function wipeRemoteData() {
-  if (apiConfigured() && getToken()) {
+  if (apiConfigured() && isSignedIn()) {
     try { await api.wipeSync(); } catch { /* best effort — local wipe still proceeds */ }
   }
   storage.remove(META_KEY);

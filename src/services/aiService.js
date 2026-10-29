@@ -1,77 +1,22 @@
-/* Real AI service — OpenAI (preferred) or Google Gemini.
- * Keys come from build env (VITE_OPENAI_API_KEY / VITE_GEMINI_API_KEY)
- * or a user-supplied key (BYOK) that is persisted in the on-device
- * IndexedDB database (same storage engine as everything else) and sent
- * only ever directly to the provider you choose. Keys never ship in source. */
+/* AI service — all provider calls are made by the server (/api/ai/*) using
+ * keys an administrator configured. No AI key ever reaches the browser. */
 
-import { storage } from './storage';
+import { api } from './apiClient';
 
-const KEYS_DOC = 'aiKeys';
-const LEGACY_SS_OPENAI = 'ihub:key:openai';
-const LEGACY_SS_GEMINI = 'ihub:key:gemini';
+let status = { configured: false, provider: null, model: null };
 
-/** Read saved provider keys from the database replica; lazily migrates any
- *  legacy sessionStorage keys into the database on first access. */
-function storedKeys() {
-  const doc = { ...(storage.get(KEYS_DOC, {}) || {}) };
-  try {
-    const so = sessionStorage.getItem(LEGACY_SS_OPENAI);
-    const sg = sessionStorage.getItem(LEGACY_SS_GEMINI);
-    let migrated = false;
-    if (so && !doc.openai) { doc.openai = so; migrated = true; }
-    if (sg && !doc.gemini) { doc.gemini = sg; migrated = true; }
-    if (so) sessionStorage.removeItem(LEGACY_SS_OPENAI);
-    if (sg) sessionStorage.removeItem(LEGACY_SS_GEMINI);
-    if (migrated) storage.set(KEYS_DOC, doc);
-  } catch { /* sessionStorage may be unavailable in sandboxed frames */ }
-  return doc;
+/** Fetch whether AI is configured (no secrets are returned). */
+export async function refreshAIStatus(reset = false) {
+  if (reset) { status = { configured: false, provider: null, model: null }; return status; }
+  try { status = await api.aiStatus(); } catch { status = { configured: false, provider: null, model: null }; }
+  return status;
 }
-
-export const byok = {
-  set({ openai, gemini }) {
-    const doc = storedKeys();
-    if (openai !== undefined) {
-      if (openai) doc.openai = openai.trim(); else delete doc.openai;
-    }
-    if (gemini !== undefined) {
-      if (gemini) doc.gemini = gemini.trim(); else delete doc.gemini;
-    }
-    if (doc.openai || doc.gemini) storage.set(KEYS_DOC, doc);
-    else storage.remove(KEYS_DOC);
-  },
-  clear() {
-    storage.remove(KEYS_DOC);
-    try {
-      sessionStorage.removeItem(LEGACY_SS_OPENAI);
-      sessionStorage.removeItem(LEGACY_SS_GEMINI);
-    } catch { /* noop */ }
-  },
-  has() {
-    const d = storedKeys();
-    return Boolean(d.openai || d.gemini);
-  },
-};
 
 export function getAIConfig() {
-  const saved = storedKeys();
-  const openai = saved.openai || import.meta.env.VITE_OPENAI_API_KEY || '';
-  const gemini = saved.gemini || import.meta.env.VITE_GEMINI_API_KEY || '';
-  if (openai) {
-    return {
-      provider: 'openai', key: openai,
-      model: import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini',
-    };
-  }
-  if (gemini) {
-    return {
-      provider: 'gemini', key: gemini,
-      model: import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.6-flash',
-    };
-  }
-  return null;
+  return status.configured ? { provider: status.provider, model: status.model } : null;
 }
 
-export const aiConfigured = () => Boolean(getAIConfig());
+export const aiConfigured = () => status.configured;
 export const aiProviderLabel = () => {
   const c = getAIConfig();
   if (!c) return null;
@@ -83,70 +28,6 @@ export class AIError extends Error {
     super(message);
     this.code = code;
   }
-}
-
-function mapHttpError(status, bodyText) {
-  let detail = '';
-  try { detail = JSON.parse(bodyText)?.error?.message || ''; } catch { detail = bodyText?.slice(0, 160) || ''; }
-  if (status === 401 || status === 403) return new AIError('AUTH', `Invalid or unauthorized API key. ${detail}`);
-  if (status === 429) return new AIError('RATE_LIMIT', `Rate limit reached. Please wait and retry. ${detail}`);
-  if (status === 404) return new AIError('MODEL', `Model not found. Check your model name. ${detail}`);
-  if (status >= 500) return new AIError('SERVER', `AI provider error (${status}). ${detail}`);
-  return new AIError('HTTP', `AI request failed (${status}). ${detail}`);
-}
-
-async function post(url, options, timeoutMs = 90000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: ctrl.signal });
-    if (!res.ok) throw mapHttpError(res.status, await res.text().catch(() => ''));
-    return await res.json();
-  } catch (e) {
-    if (e instanceof AIError) throw e;
-    if (e.name === 'AbortError') throw new AIError('TIMEOUT', 'The AI took too long to respond. Please retry.');
-    throw new AIError('NETWORK', 'Network error while contacting the AI provider. Check your connection.');
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-async function callOpenAI(cfg, system, user, wantJson) {
-  const body = {
-    model: cfg.model,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    temperature: 0.7,
-  };
-  if (wantJson) body.response_format = { type: 'json_object' };
-  const data = await post('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
-    body: JSON.stringify(body),
-  });
-  const text = data?.choices?.[0]?.message?.content;
-  if (!text) throw new AIError('BAD_RESPONSE', 'OpenAI returned an empty response.');
-  return text;
-}
-
-async function callGemini(cfg, system, user, wantJson) {
-  const body = {
-    system_instruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: user }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
-  };
-  if (wantJson) body.generationConfig.responseMimeType = 'application/json';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.key)}`;
-  const data = await post(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('');
-  if (!text) throw new AIError('BAD_RESPONSE', 'Gemini returned an empty response.');
-  return text;
 }
 
 /* Tolerant JSON extraction: strips code fences, finds the outermost object. */
@@ -174,13 +55,14 @@ export function extractJSON(text) {
 
 /** ask(system, user, {json}) → object|string. Throws AIError on failure. */
 export async function ask(system, user, { json = true } = {}) {
-  const cfg = getAIConfig();
-  if (!cfg) {
-    throw new AIError('NO_KEY', 'No AI key configured. Add one in Settings or via VITE_OPENAI_API_KEY / VITE_GEMINI_API_KEY.');
+  let raw;
+  try {
+    ({ text: raw } = await api.aiAsk({ system, user, json }));
+  } catch (e) {
+    if (e.status === 401) throw new AIError('AUTH_SESSION', 'Your session expired. Please sign in again.');
+    if (e.code) throw new AIError(e.code, e.message);
+    throw new AIError('NETWORK', e.message || 'Could not reach the server.');
   }
-  const raw = cfg.provider === 'openai'
-    ? await callOpenAI(cfg, system, user, json)
-    : await callGemini(cfg, system, user, json);
   return json ? extractJSON(raw) : raw;
 }
 
@@ -217,8 +99,8 @@ export function normalizeScores(raw = {}) {
 export function friendlyAIError(e) {
   if (!(e instanceof AIError)) return 'Something went wrong while contacting the AI.';
   switch (e.code) {
-    case 'NO_KEY': return 'No AI key configured.';
-    case 'AUTH': return 'Your AI API key was rejected. Check it in Settings.';
+    case 'NO_KEY': return 'AI is not configured yet. An administrator must add a provider key.';
+    case 'AUTH': return 'The configured AI API key was rejected. Ask an administrator to update it.';
     case 'RATE_LIMIT': return 'Rate limit reached — wait a moment and retry.';
     case 'NETWORK': return 'Network error contacting the AI provider.';
     case 'TIMEOUT': return 'The AI timed out. Please retry.';

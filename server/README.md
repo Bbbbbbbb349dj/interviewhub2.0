@@ -44,7 +44,7 @@ createdb interviewhub
 
 # 2. Configure + run the API
 cd server
-cp .env.example .env     # edit DATABASE_URL / JWT_SECRET
+cp .env.example .env     # edit DATABASE_URL / APP_URL / SETTINGS_ENCRYPTION_KEY
 npm install
 npm start                # → listening on :4000, schema auto-migrated
 ```
@@ -71,20 +71,40 @@ All user rows reference `accounts(id) ON DELETE CASCADE`.
 | Method & path | Auth | Description |
 |---|---|---|
 | `GET /api/health` | — | liveness + DB connectivity |
-| `POST /api/auth/register` | — | `{name,email,password}` → `{token,user}` |
-| `POST /api/auth/login` | — | `{email,password}` → `{token,user}` |
-| `GET /api/auth/me` | Bearer | current account |
-| `PATCH /api/auth/profile` | Bearer | update name/profile |
-| `DELETE /api/auth/me` | Bearer | delete account + all data |
-| `GET /api/sync/pull` | Bearer | full user snapshot |
-| `POST /api/sync/push` | Bearer | upsert collections/docs + deletions |
-| `DELETE /api/sync/all` | Bearer | wipe synced data, keep account |
+| `POST /api/auth/register` | — | `{name,email,password}` → `{user}` + session cookie |
+| `POST /api/auth/login` | — | `{email,password}` → `{user}` + session cookie |
+| `POST /api/auth/logout` | cookie | revoke session |
+| `POST /api/auth/forgot` / `reset` | — | password reset |
+| `GET /api/auth/google/start` / `callback` | — | Google sign-in |
+| `GET/PUT/DELETE /api/admin/ai[/:provider]` | admin | manage AI keys |
+| `GET /api/ai/status`, `POST /api/ai/ask` | cookie | server-side AI proxy |
+| `GET /api/auth/me` | cookie | current account |
+| `PATCH /api/auth/profile` | cookie | update name/profile |
+| `DELETE /api/auth/me` | cookie | delete account + all data |
+| `GET /api/sync/pull` | cookie | full user snapshot |
+| `POST /api/sync/push` | cookie | upsert collections/docs + deletions |
+| `DELETE /api/sync/all` | cookie | wipe synced data, keep account |
 
 ## Notes
 
-- **AI API keys (BYOK) are never synced to the server** — they stay in the
-  device's local database only and are sent directly to OpenAI/Gemini.
-- Set a strong `JWT_SECRET` in production; restrict `CORS_ORIGIN` to your
-  app's origin when deploying publicly.
+- AI keys are set by an admin, encrypted (AES-256-GCM) in PostgreSQL, and only used server-side.
 - Swap the database later (MySQL/MongoDB) by reimplementing `db.js` +
   `schema.js` — the REST contract stays identical.
+
+## Authentication, Google, password reset, admin
+
+Sessions are httpOnly, `SameSite=Lax` cookies (`Secure` on Vercel / `NODE_ENV=production`); only a hash of the session token is stored. Run `npm install` in `server/` after pulling (adds `google-auth-library`, removes `jsonwebtoken`). The schema migrates automatically on boot (new tables `sessions`, `password_reset_tokens`, `app_secrets`; new `accounts.google_id`, `accounts.role`).
+
+**Environment variables (Vercel → server project):** `DATABASE_URL`, `APP_URL` (`https://interviewhub20.vercel.app`), `SETTINGS_ENCRYPTION_KEY`, `RESEND_API_KEY` + `MAIL_FROM` (password-reset email via Resend; a verified sender is required), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. `JWT_SECRET` is no longer used. Optional: `OPENAI_MODEL`, `GEMINI_MODEL`, `CORS_ORIGIN` (local dev only).
+
+**Google setup:** Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web application). Authorized redirect URI: `<APP_URL>/api/auth/google/callback` (also add `http://localhost:4000/api/auth/google/callback` for local dev). Configure the consent screen, then set the two `GOOGLE_*` variables. The button appears only when they are set.
+
+**Create the first admin** (no public admin signup exists). Register or sign in once, then in PostgreSQL:
+```sql
+UPDATE accounts SET role = 'admin' WHERE email = 'you@example.com';
+```
+Open **Admin** from the account menu to add/replace/remove the OpenAI and Gemini keys.
+
+Old device-local (IndexedDB) accounts are not migrated; users must register again.
+
+**Neon:** use the connection string from the Neon dashboard as `DATABASE_URL` (the pooled `-pooler` host is recommended on Vercel; keep `?sslmode=require`). Migrations run automatically on first request. Run the admin `UPDATE` in the Neon SQL Editor.

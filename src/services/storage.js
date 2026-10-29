@@ -170,8 +170,6 @@ export const storage = {
 };
 
 export const KEYS = {
-  accounts: 'accounts',
-  session: 'session',
   theme: 'theme',
   interviews: 'interviews',
   coding: 'codingAttempts',
@@ -202,24 +200,6 @@ export function importAllData(payload) {
   Object.values(KEYS).forEach((k) => {
     if (payload.data[k] !== undefined) storage.set(k, payload.data[k]);
   });
-}
-
-/* SHA-256 via WebCrypto for local demo authentication, with a non-crypto
- * fallback for non-secure contexts where crypto.subtle is unavailable. */
-export async function sha256(text) {
-  try {
-    if (globalThis.crypto?.subtle) {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-    }
-  } catch { /* fall through to fallback */ }
-  // FNV-1a double-pass — demo-grade only (auth is local MVP anyway)
-  let h1 = 0x811c9dc5, h2 = 0x01000193;
-  for (let i = 0; i < text.length; i++) {
-    h1 = Math.imul(h1 ^ text.charCodeAt(i), 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ text.charCodeAt(text.length - 1 - i), 0x85ebca6b) >>> 0;
-  }
-  return `fb_${h1.toString(16)}${h2.toString(16)}`;
 }
 
 export function uid() {

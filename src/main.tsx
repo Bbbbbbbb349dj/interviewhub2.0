@@ -15,6 +15,16 @@ async function boot() {
     console.error("[InterviewHub] Database initialisation failed:", e);
   }
 
+  // Old device-local accounts/sessions/AI keys are no longer used. They are NOT
+  // migrated to server accounts; remember that so the sign-in page can say so.
+  try {
+    const legacy = storage.get("accounts") as unknown;
+    if (Array.isArray(legacy) && legacy.length) localStorage.setItem("ihub:legacyAccounts", "1");
+    ["accounts", "session", "aiKeys"].forEach((k) => storage.remove(k));
+    sessionStorage.removeItem("ihub:key:openai");
+    sessionStorage.removeItem("ihub:key:gemini");
+  } catch { /* storage unavailable */ }
+
   // Apply the persisted theme pre-paint so the first frame is correct.
   const theme = (storage.get(KEYS.theme) as string) || "dark";
   document.documentElement.classList.toggle("dark", theme === "dark");

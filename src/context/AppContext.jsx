@@ -1,36 +1,20 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, AlertTriangle, Info, Trophy, X } from 'lucide-react';
-import { storage, KEYS, sha256, uid, logActivity } from '../services/storage';
+import { storage, KEYS, logActivity } from '../services/storage';
 import { evaluateAchievements, getUnlocked } from '../services/gamification';
 import { computeAll } from '../services/analyticsService';
-import { api, apiConfigured, probeServer } from '../services/apiClient';
+import { api, setSignedIn } from '../services/apiClient';
+import { refreshAIStatus } from '../services/aiService';
 import { startSyncSession, stopSyncSession, getSyncState, subscribeSync, syncNow } from '../services/dbSync';
 
 const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
 
-/* ---------- Auth: server accounts (PostgreSQL) when an API is configured,
- * local accounts as the offline fallback. Session doc shape:
- *   { mode: 'server', email, token, user } | { mode: 'local', email }
- * (a bare email string from older versions is treated as local mode). --- */
-function getAccounts() { return storage.get(KEYS.accounts, []); }
-
-function readSessionUser() {
-  const s = storage.get(KEYS.session);
-  if (!s) return null;
-  if (typeof s === 'string') return getAccounts().find((a) => a.email === s) || null;
-  if (s.mode === 'server') return s.user || null;
-  return getAccounts().find((a) => a.email === s.email) || null;
-}
-
-function sessionMode() {
-  const s = storage.get(KEYS.session);
-  return s && typeof s === 'object' ? s.mode : 'local';
-}
-
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(readSessionUser);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [aiVersion, setAiVersion] = useState(0);
   const [theme, setTheme] = useState(() => storage.get(KEYS.theme) || 'dark');
   const [settings, setSettings] = useState(() => storage.get(KEYS.settings, { ttsRate: 1, ttsVoice: null, notif: true, ttsEnabled: true }));
   const [toasts, setToasts] = useState([]);
@@ -51,9 +35,25 @@ export function AppProvider({ children }) {
         setStatsVersion((v) => v + 1);
       }
     });
-    if (sessionMode() === 'server') startSyncSession();
     return unsubscribe;
   }, []);
+
+  /* Restore the server session (httpOnly cookie) on load. */
+  const enterSession = useCallback((u) => {
+    setSignedIn(true);
+    setUser(u);
+    startSyncSession();
+    refreshAIStatus().then(() => setAiVersion((v) => v + 1));
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    api.me()
+      .then(({ user: u }) => { if (live) enterSession(u); })
+      .catch(() => { /* not signed in */ })
+      .finally(() => { if (live) setAuthReady(true); });
+    return () => { live = false; };
+  }, [enterSession]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -69,82 +69,30 @@ export function AppProvider({ children }) {
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   const register = useCallback(async ({ name, email, password }) => {
-    email = email.trim().toLowerCase();
-    /* Server mode: account is created in PostgreSQL via the API. */
-    if (apiConfigured()) {
-      const up = await probeServer(true);
-      if (!up) throw new Error('InterviewHub server is unreachable. Make sure the API is running (docker compose up), or clear the API URL in Settings to use a device-local account.');
-      const { token, user: serverUser } = await api.register({ name: name.trim(), email, password });
-      storage.set(KEYS.session, { mode: 'server', email: serverUser.email, token, user: serverUser });
-      setUser(serverUser);
-      logActivity('account', 'Created account');
-      startSyncSession(); // pushes any existing local practice data up
-      return serverUser;
-    }
-    /* Local fallback mode (no server configured). */
-    const accounts = getAccounts();
-    if (accounts.some((a) => a.email === email)) throw new Error('An account with this email already exists.');
-    const salt = uid();
-    const passHash = await sha256(salt + password);
-    const account = {
-      id: uid(), name: name.trim(), email, salt, passHash, createdAt: Date.now(),
-      profile: { targetRole: '', skills: [], education: '', bio: '' },
-    };
-    storage.set(KEYS.accounts, [...accounts, account]);
-    storage.set(KEYS.session, { mode: 'local', email });
-    setUser(account);
+    const { user: u } = await api.register({ name: name.trim(), email: email.trim().toLowerCase(), password });
+    enterSession(u);
     logActivity('account', 'Created account');
-    return account;
-  }, []);
+    return u;
+  }, [enterSession]);
 
   const login = useCallback(async ({ email, password }) => {
-    email = email.trim().toLowerCase();
-    if (apiConfigured()) {
-      const { token, user: serverUser } = await api.login({ email, password });
-      storage.set(KEYS.session, { mode: 'server', email: serverUser.email, token, user: serverUser });
-      setUser(serverUser);
-      startSyncSession(); // pulls this account's data from PostgreSQL
-      return serverUser;
-    }
-    const account = getAccounts().find((a) => a.email === email);
-    if (!account) throw new Error('No account found with this email.');
-    const hash = await sha256(account.salt + password);
-    if (hash !== account.passHash) throw new Error('Incorrect password.');
-    storage.set(KEYS.session, { mode: 'local', email });
-    setUser(account);
-    return account;
-  }, []);
+    const { user: u } = await api.login({ email: email.trim().toLowerCase(), password });
+    enterSession(u);
+    return u;
+  }, [enterSession]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try { await api.logout(); } catch { /* cookie is cleared server-side when reachable */ }
     stopSyncSession();
-    storage.remove(KEYS.session);
+    setSignedIn(false);
     setUser(null);
+    refreshAIStatus(true);
   }, []);
 
   const updateProfile = useCallback(async (patch) => {
-    if (sessionMode() === 'server' && apiConfigured()) {
-      try {
-        const { user: updated } = await api.updateProfile({ name: patch.name, profile: patch.profile });
-        const s = storage.get(KEYS.session);
-        if (s && typeof s === 'object') storage.set(KEYS.session, { ...s, user: updated, email: updated.email });
-        setUser(updated);
-        return;
-      } catch { /* offline — fall through to the local profile cache */ }
-      const s = storage.get(KEYS.session);
-      if (s?.user) {
-        const merged = { ...s.user, ...patch, profile: { ...s.user.profile, ...(patch.profile || {}) } };
-        storage.set(KEYS.session, { ...s, user: merged });
-        setUser(merged);
-      }
-      return;
-    }
-    const accounts = getAccounts();
-    const idx = accounts.findIndex((a) => a.email === user?.email);
-    if (idx === -1) return;
-    accounts[idx] = { ...accounts[idx], ...patch, profile: { ...accounts[idx].profile, ...(patch.profile || {}) } };
-    storage.set(KEYS.accounts, accounts);
-    setUser(accounts[idx]);
-  }, [user]);
+    const { user: updated } = await api.updateProfile({ name: patch.name, profile: patch.profile });
+    setUser(updated);
+  }, []);
 
   const saveSettings = useCallback((patch) => {
     setSettings((s) => {
@@ -168,7 +116,7 @@ export function AppProvider({ children }) {
   const refreshStats = useCallback(() => setStatsVersion((v) => v + 1), []);
 
   const value = {
-    user, register, login, logout, updateProfile,
+    user, authReady, aiVersion, register, login, logout, updateProfile,
     theme, toggleTheme, toast,
     settings, saveSettings,
     stats, achievements, commitActivity, refreshStats,

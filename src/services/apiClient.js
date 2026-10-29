@@ -6,7 +6,7 @@
  * set the app runs in local-only mode (IndexedDB replica, fully functional).
  * ========================================================================== */
 
-import { storage, KEYS } from './storage';
+import { storage } from './storage';
 
 const ENV_URL = (import.meta.env.VITE_API_URL || '').trim();
 const SYNC_CONFIG_KEY = 'syncConfig';
@@ -40,22 +40,16 @@ export function setApiUrl(url) {
   probeCache = { url: null, ok: false, at: 0 };
 }
 
-export function getSession() {
-  const s = storage.get(KEYS.session);
-  if (!s) return null;
-  if (typeof s === 'string') return { mode: 'local', email: s }; // legacy shape
-  return s;
-}
-
-export function getToken() {
-  const s = getSession();
-  return s && s.mode === 'server' ? s.token || null : null;
-}
+/* Auth is a server-side httpOnly session cookie; JS only tracks "signed in" for sync gating. */
+let signedIn = false;
+export const setSignedIn = (v) => { signedIn = Boolean(v); };
+export const isSignedIn = () => signedIn;
 
 export class ApiError extends Error {
-  constructor(message, status = 0) {
+  constructor(message, status = 0, code = '') {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -68,19 +62,16 @@ async function req(path, { method = 'GET', body, auth = true, timeout = 10000, k
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
     const headers = { 'Content-Type': 'application/json' };
-    if (auth) {
-      const token = getToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-    }
     const res = await fetch(base + path, {
       method,
+      credentials: 'include',
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: ctrl.signal,
       keepalive,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new ApiError(data?.error || `Server error (${res.status}).`, res.status);
+    if (!res.ok) throw new ApiError(data?.error || `Server error (${res.status}).`, res.status, data?.code || '');
     return data;
   } catch (e) {
     if (e instanceof ApiError) throw e;
@@ -109,7 +100,16 @@ export const api = {
   health: () => req('/api/health', { auth: false, timeout: 4000 }),
   register: ({ name, email, password }) => req('/api/auth/register', { method: 'POST', body: { name, email, password }, auth: false }),
   login: ({ email, password }) => req('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  logout: () => req('/api/auth/logout', { method: 'POST', body: {} }),
+  providers: () => req('/api/auth/providers', { auth: false }),
+  forgot: (email) => req('/api/auth/forgot', { method: 'POST', body: { email }, auth: false }),
+  reset: ({ token, password }) => req('/api/auth/reset', { method: 'POST', body: { token, password }, auth: false }),
   me: () => req('/api/auth/me'),
+  aiStatus: () => req('/api/ai/status'),
+  aiAsk: (payload) => req('/api/ai/ask', { method: 'POST', body: payload, timeout: 90000 }),
+  adminAi: () => req('/api/admin/ai'),
+  adminSetKey: (provider, key) => req(`/api/admin/ai/${provider}`, { method: 'PUT', body: { key } }),
+  adminRemoveKey: (provider) => req(`/api/admin/ai/${provider}`, { method: 'DELETE' }),
   updateProfile: (patch) => req('/api/auth/profile', { method: 'PATCH', body: patch }),
   deleteAccount: () => req('/api/auth/me', { method: 'DELETE' }),
   pull: () => req('/api/sync/pull', { timeout: 20000 }),

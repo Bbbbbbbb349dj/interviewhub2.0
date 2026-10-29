@@ -158,22 +158,20 @@ export default function Interview() {
           {!aiConfigured() ? (
             <Card className="p-8 text-center">
               <span className={`mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br ${F.grad} text-white shadow-lg ${F.glowShadow}`}><KeyRound size={28} /></span>
-              <h2 className="mt-5 font-display text-2xl font-bold text-slate-900 dark:text-white">Connect a real AI to begin</h2>
+              <h2 className="mt-5 font-display text-2xl font-bold text-slate-900 dark:text-white">AI interviews aren't available yet</h2>
               <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-                The interview is driven by a live LLM — questions are generated dynamically, adapted to your answers, and evaluated in real time. No canned scripts. Add your <b>OpenAI</b> or <b>Gemini</b> key to activate it.
+                The interview is driven by a live LLM — questions are generated dynamically, adapted to your answers, and evaluated in real time. No canned scripts. An administrator needs to configure an AI provider before interviews can start.
               </p>
               <div className="mx-auto mt-6 max-w-md space-y-2 text-left">
-                {['Open Settings below', 'Paste an OpenAI or Gemini API key (session-only — never written to disk)', 'Come back and start your interview'].map((s, i) => (
+                {['An administrator adds an OpenAI or Gemini key in the Admin panel', 'Reload this page', 'Start your interview'].map((s, i) => (
                   <div key={s} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-300">
                     <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 text-xs font-bold text-white">{i + 1}</span>{s}
                   </div>
                 ))}
               </div>
               <div className="mt-7 flex justify-center gap-3">
-                <BtnLink to="/settings">Open Settings <ArrowRight size={15} /></BtnLink>
                 <Btn variant="outline" onClick={handleStart} disabled>Start Interview</Btn>
               </div>
-              <p className="mt-4 text-xs text-slate-400">Developers: keys can also be baked in via VITE_OPENAI_API_KEY / VITE_GEMINI_API_KEY at build time.</p>
             </Card>
           ) : (
             <Card className="p-6 sm:p-8">
